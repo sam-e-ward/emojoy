@@ -60,7 +60,7 @@ pub fn start_listener(app_handle: AppHandle, trigger: String) {
         let app = app_handle.clone();
 
         let tap = CGEventTap::new(
-            CGEventTapLocation::HID,
+            CGEventTapLocation::Session,
             CGEventTapPlacement::HeadInsertEventTap,
             CGEventTapOptions::ListenOnly,
             vec![CGEventType::KeyDown],

@@ -3,6 +3,8 @@ mod emoji;
 mod paste;
 
 #[cfg(target_os = "macos")]
+mod focus_mac;
+#[cfg(target_os = "macos")]
 mod hotkey_mac;
 
 use emoji::EmojiDatabase;
@@ -31,18 +33,26 @@ fn select_emoji(emoji: String, app: tauri::AppHandle) -> Result<(), String> {
         let _ = window.hide();
     }
 
-    // Small delay to let the window hide and previous app refocus
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Reactivate the previously focused app
+    #[cfg(target_os = "macos")]
+    focus_mac::reactivate_previous_app();
+
+    // Wait for the app to regain focus
+    std::thread::sleep(std::time::Duration::from_millis(150));
 
     // Paste the emoji
     paste::paste_emoji(&emoji).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn hide_window(app: tauri::AppHandle) {
+fn dismiss(app: tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
+
+    // Refocus the previous app
+    #[cfg(target_os = "macos")]
+    focus_mac::reactivate_previous_app();
 }
 
 fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -105,13 +115,14 @@ pub fn run() {
     }
 
     let trigger = config.trigger_sequence.clone();
+    let trigger_len = trigger.chars().count();
 
     tauri::Builder::default()
         .manage(Mutex::new(AppState { db }))
         .invoke_handler(tauri::generate_handler![
             search_emojis,
             select_emoji,
-            hide_window,
+            dismiss,
         ])
         .setup(move |app| {
             setup_tray(app)?;
@@ -126,6 +137,14 @@ pub fn run() {
             // Listen for trigger event to show window
             let app_handle = app.handle().clone();
             app.listen("trigger-activated", move |_event| {
+                // Capture which app is focused BEFORE we steal focus
+                #[cfg(target_os = "macos")]
+                focus_mac::capture_frontmost_app();
+
+                // Delete the trigger characters (e.g. "::") from the previous app
+                let _ = paste::delete_chars(trigger_len);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+
                 if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.center();
                     let _ = window.show();

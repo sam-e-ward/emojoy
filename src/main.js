@@ -18,6 +18,11 @@ getCurrentWindow().listen("tauri://focus", () => {
   resetState();
 });
 
+// Dismiss when clicking away (window loses focus)
+getCurrentWindow().listen("tauri://blur", () => {
+  invoke("dismiss");
+});
+
 function resetState() {
   searchInput.value = "";
   selectedIndex = 0;
@@ -56,7 +61,7 @@ searchInput.addEventListener("keydown", (e) => {
       break;
     case "Escape":
       e.preventDefault();
-      invoke("hide_window");
+      invoke("dismiss");
       break;
   }
 });

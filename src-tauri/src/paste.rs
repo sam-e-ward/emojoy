@@ -1,6 +1,34 @@
 use arboard::Clipboard;
 use std::error::Error;
 
+/// Simulate N backspace key presses to delete the trigger characters
+pub fn delete_chars(count: usize) -> Result<(), Box<dyn Error>> {
+    #[cfg(target_os = "macos")]
+    {
+        use core_graphics::event::CGEvent;
+        use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+        const KEY_BACKSPACE: u16 = 51;
+
+        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+            .map_err(|_| "Failed to create event source")?;
+
+        for _ in 0..count {
+            let key_down = CGEvent::new_keyboard_event(source.clone(), KEY_BACKSPACE, true)
+                .map_err(|_| "Failed to create key down event")?;
+            key_down.post(core_graphics::event::CGEventTapLocation::HID);
+
+            let key_up = CGEvent::new_keyboard_event(source.clone(), KEY_BACKSPACE, false)
+                .map_err(|_| "Failed to create key up event")?;
+            key_up.post(core_graphics::event::CGEventTapLocation::HID);
+
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    Ok(())
+}
+
 /// Copy an emoji to clipboard and simulate paste (Cmd+V on macOS, Ctrl+V on Windows)
 pub fn paste_emoji(emoji: &str) -> Result<(), Box<dyn Error>> {
     // Write to clipboard
