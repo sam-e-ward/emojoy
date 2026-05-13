@@ -71,6 +71,7 @@ async function doSearch(query) {
     currentResults = await invoke("search_emojis", { query });
     selectedIndex = 0;
     renderResults();
+    resultsContainer.scrollTop = 0;
   } catch (err) {
     console.error("Search failed:", err);
   }
