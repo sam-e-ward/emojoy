@@ -23,9 +23,7 @@ A lightweight desktop emoji picker. Type `::` anywhere to trigger a floating sea
 ```bash
 git clone https://github.com/samward/emojoy.git
 cd emojoy
-npm install
-npm run build
-npm run install-app
+./install.sh
 ```
 
 ### Grant Accessibility permission
