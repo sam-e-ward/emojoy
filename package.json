@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build": "tauri build --bundles app",
+    "install-app": "cp -rf src-tauri/target/release/bundle/macos/Emojoy.app /Applications/ && echo 'Installed to /Applications/Emojoy.app'"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
