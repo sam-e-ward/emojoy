@@ -8,7 +8,7 @@ A lightweight desktop emoji picker. Type `::` anywhere to trigger a floating sea
 - **Smart search**: Tag-based search with multiple aliases per emoji (powered by [emojilib](https://github.com/muan/emojilib))
 - **Keyboard-first**: Arrow keys to navigate, Enter to select, Escape to dismiss
 - **Learns from you**: Most-used emojis float to the top
-- **Lightweight**: ~4MB download, minimal resource usage
+- **Lightweight**: ~8MB app, minimal resource usage
 - **Custom aliases**: Add your own search terms via config file
 
 ## Install (macOS)
@@ -24,28 +24,21 @@ A lightweight desktop emoji picker. Type `::` anywhere to trigger a floating sea
 git clone https://github.com/samward/emojoy.git
 cd emojoy
 npm install
-npm run tauri build
+npm run build
+npm run install-app
 ```
-
-Then either:
-
-- **Drag to Applications**: Open `src-tauri/target/release/bundle/dmg/Emojoy_*.dmg` and drag Emojoy to your Applications folder
-- **Or copy directly**: `cp -r src-tauri/target/release/bundle/macos/Emojoy.app /Applications/`
 
 ### Grant Accessibility permission
 
-Emojoy needs Accessibility access to detect your `::` keystrokes globally:
+Emojoy needs Accessibility access to detect `::` keystrokes globally:
 
 1. Open **System Settings → Privacy & Security → Accessibility**
-2. Click the **+** button and add **Emojoy** (from Applications)
+2. Click **+** and add **Emojoy** from `/Applications`
 3. Restart Emojoy
-
-> Without this permission, the `::` trigger won't work. The app will still run in the menu bar but you won't be able to activate it.
 
 ### Launch at login (optional)
 
-1. Open **System Settings → General → Login Items**
-2. Click **+** and add **Emojoy**
+**System Settings → General → Login Items** → **+** → add **Emojoy**
 
 ## Usage
 
@@ -57,7 +50,7 @@ Emojoy needs Accessibility access to detect your `::` keystrokes globally:
 
 ## Configuration
 
-Config file: `~/.config/emojoy/config.json`
+Edit `~/.config/emojoy/config.json`:
 
 ```json
 {
@@ -69,16 +62,14 @@ Config file: `~/.config/emojoy/config.json`
 }
 ```
 
-- **trigger_sequence**: The key sequence that opens the picker (default `::`)
-- **custom_aliases**: Extra search terms for any emoji, merged with the built-in tags
-
 Usage stats are stored at `~/.config/emojoy/usage.json`.
 
-## Tech Stack
+## Development
 
-- [Tauri v2](https://tauri.app/) — Rust backend, web frontend
-- Vanilla HTML/CSS/JS frontend
-- macOS: CoreGraphics for global keystroke monitoring and paste simulation
+```bash
+npm install
+npm run tauri dev
+```
 
 ## License
 
