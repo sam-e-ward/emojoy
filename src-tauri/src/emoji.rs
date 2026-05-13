@@ -66,20 +66,31 @@ impl EmojiDatabase {
     }
 
     /// Search emojis by query. Matches against all tags.
+    /// Usage stats provide a frequency boost (frequently used emojis rank higher).
     /// Returns results sorted by relevance (best first), limited to `max_results`.
-    pub fn search(&self, query: &str, max_results: usize) -> Vec<SearchResult> {
+    pub fn search(
+        &self,
+        query: &str,
+        max_results: usize,
+        usage: Option<&crate::usage::UsageStats>,
+    ) -> Vec<SearchResult> {
         if query.is_empty() {
-            // Return first N popular emojis when no query
-            return self
+            // Return emojis sorted by usage (most used first), then default order
+            let mut results: Vec<SearchResult> = self
                 .entries
                 .iter()
-                .take(max_results)
-                .map(|e| SearchResult {
-                    emoji: e.emoji.clone(),
-                    name: e.name.clone(),
-                    score: 100,
+                .map(|e| {
+                    let boost = usage.map_or(0, |u| u.boost(&e.emoji));
+                    SearchResult {
+                        emoji: e.emoji.clone(),
+                        name: e.name.clone(),
+                        score: 100u32.saturating_sub(boost),
+                    }
                 })
                 .collect();
+            results.sort_by_key(|r| r.score);
+            results.truncate(max_results);
+            return results;
         }
 
         let query_lower = query.to_lowercase();
@@ -91,10 +102,11 @@ impl EmojiDatabase {
             .filter_map(|entry| {
                 let score = score_entry(entry, &query_terms);
                 if score < u32::MAX {
+                    let boost = usage.map_or(0, |u| u.boost(&entry.emoji));
                     Some(SearchResult {
                         emoji: entry.emoji.clone(),
                         name: entry.name.clone(),
-                        score,
+                        score: score.saturating_sub(boost),
                     })
                 } else {
                     None
@@ -195,21 +207,21 @@ mod tests {
     #[test]
     fn test_exact_tag_match() {
         let db = test_db();
-        let results = db.search("fire", 10);
+        let results = db.search("fire", 10, None);
         assert_eq!(results[0].emoji, "🔥");
     }
 
     #[test]
     fn test_prefix_match() {
         let db = test_db();
-        let results = db.search("hap", 10);
+        let results = db.search("hap", 10, None);
         assert_eq!(results[0].emoji, "😀");
     }
 
     #[test]
     fn test_substring_match() {
         let db = test_db();
-        let results = db.search("eart", 10);
+        let results = db.search("eart", 10, None);
         assert!(!results.is_empty());
         assert_eq!(results[0].emoji, "❤️");
     }
@@ -217,21 +229,21 @@ mod tests {
     #[test]
     fn test_no_match() {
         let db = test_db();
-        let results = db.search("zzzzz", 10);
+        let results = db.search("zzzzz", 10, None);
         assert!(results.is_empty());
     }
 
     #[test]
     fn test_empty_query_returns_results() {
         let db = test_db();
-        let results = db.search("", 10);
+        let results = db.search("", 10, None);
         assert_eq!(results.len(), 4);
     }
 
     #[test]
     fn test_multi_term_search() {
         let db = test_db();
-        let results = db.search("face smile", 10);
+        let results = db.search("face smile", 10, None);
         assert_eq!(results[0].emoji, "😀");
     }
 
@@ -242,14 +254,40 @@ mod tests {
         aliases.insert("🔥".to_string(), vec!["awesome".to_string()]);
         db.merge_aliases(&aliases);
 
-        let results = db.search("awesome", 10);
+        let results = db.search("awesome", 10, None);
         assert_eq!(results[0].emoji, "🔥");
     }
 
     #[test]
     fn test_max_results_limit() {
         let db = test_db();
-        let results = db.search("face", 2);
+        let results = db.search("face", 2, None);
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_usage_boost_reranks_results() {
+        let db = test_db();
+        // Without usage, "fire" exact match on first tag (score 0) beats "lit" substring
+        let results = db.search("face", 10, None);
+        // 😀 has "face" at tag index 1, 😂 has "face" at tag index 1 — tied
+        // Now boost 😂 heavily
+        let mut usage = crate::usage::UsageStats::default();
+        for _ in 0..30 {
+            usage.record("😂");
+        }
+        let results_with_usage = db.search("face", 10, Some(&usage));
+        assert_eq!(results_with_usage[0].emoji, "😂");
+    }
+
+    #[test]
+    fn test_empty_query_sorted_by_usage() {
+        let db = test_db();
+        let mut usage = crate::usage::UsageStats::default();
+        for _ in 0..20 {
+            usage.record("🔥");
+        }
+        let results = db.search("", 10, Some(&usage));
+        assert_eq!(results[0].emoji, "🔥");
     }
 }

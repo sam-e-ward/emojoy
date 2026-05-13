@@ -1,6 +1,7 @@
 mod config;
 mod emoji;
 mod paste;
+mod usage;
 
 #[cfg(target_os = "macos")]
 mod focus_mac;
@@ -9,6 +10,7 @@ mod hotkey_mac;
 
 use emoji::EmojiDatabase;
 use config::AppConfig;
+use usage::UsageStats;
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -18,16 +20,26 @@ use tauri::{
 
 struct AppState {
     db: EmojiDatabase,
+    usage: UsageStats,
 }
 
 #[tauri::command]
 fn search_emojis(query: &str, state: tauri::State<'_, Mutex<AppState>>) -> Vec<emoji::SearchResult> {
     let state = state.lock().unwrap();
-    state.db.search(query, 50)
+    state.db.search(query, 50, Some(&state.usage))
 }
 
 #[tauri::command]
-fn select_emoji(emoji: String, app: tauri::AppHandle) -> Result<(), String> {
+fn select_emoji(emoji: String, app: tauri::AppHandle, state: tauri::State<'_, Mutex<AppState>>) -> Result<(), String> {
+    // Record usage
+    {
+        let mut state = state.lock().unwrap();
+        state.usage.record(&emoji);
+        if let Err(e) = state.usage.save() {
+            eprintln!("Failed to save usage stats: {}", e);
+        }
+    }
+
     // Hide the popup first
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
@@ -114,11 +126,12 @@ pub fn run() {
         db.merge_aliases(&config.custom_aliases);
     }
 
+    let usage = UsageStats::load();
     let trigger = config.trigger_sequence.clone();
     let trigger_len = trigger.chars().count();
 
     tauri::Builder::default()
-        .manage(Mutex::new(AppState { db }))
+        .manage(Mutex::new(AppState { db, usage }))
         .invoke_handler(tauri::generate_handler![
             search_emojis,
             select_emoji,
