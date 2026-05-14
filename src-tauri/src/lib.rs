@@ -7,6 +7,8 @@ mod usage;
 mod focus_mac;
 #[cfg(target_os = "macos")]
 mod hotkey_mac;
+#[cfg(target_os = "macos")]
+mod permissions_mac;
 
 use emoji::EmojiDatabase;
 use config::AppConfig;
@@ -158,7 +160,30 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let handle = app.handle().clone();
-                hotkey_mac::start_listener(handle, trigger);
+                let trigger_clone = trigger.clone();
+                std::thread::spawn(move || {
+                    // Check accessibility permission. If missing, prompt the user
+                    // (this opens System Settings AND registers the current binary
+                    // in the TCC database, so rebuilds work correctly).
+                    if !permissions_mac::is_accessibility_trusted(false) {
+                        log::warn!("[app] Accessibility permission not granted — prompting user");
+                        permissions_mac::is_accessibility_trusted(true); // shows System Settings
+
+                        // Poll until the user grants it (they may need to toggle it on)
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                            if permissions_mac::is_accessibility_trusted(false) {
+                                log::info!("[app] Accessibility permission granted!");
+                                break;
+                            }
+                            log::info!("[app] Still waiting for accessibility permission...");
+                        }
+                    } else {
+                        log::info!("[app] Accessibility permission already granted");
+                    }
+
+                    hotkey_mac::start_listener(handle, trigger_clone);
+                });
             }
 
             // Listen for trigger event to show window
