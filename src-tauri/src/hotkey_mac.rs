@@ -55,7 +55,10 @@ impl HotkeyState {
 /// Start listening for the trigger sequence globally.
 /// Emits "trigger-activated" event to the Tauri app when detected.
 pub fn start_listener(app_handle: AppHandle, trigger: String) {
+    log::info!("[hotkey] start_listener called, trigger={:?}", trigger);
+
     std::thread::spawn(move || {
+        log::info!("[hotkey] event tap thread started");
         let state = Arc::new(Mutex::new(HotkeyState::new(&trigger)));
         let app = app_handle.clone();
 
@@ -70,7 +73,11 @@ pub fn start_listener(app_handle: AppHandle, trigger: String) {
                     let mut state = state.lock().unwrap();
                     for c in chars.chars() {
                         if state.push_char(c) {
-                            let _ = app.emit("trigger-activated", ());
+                            log::info!("[hotkey] trigger sequence detected! emitting trigger-activated");
+                            match app.emit("trigger-activated", ()) {
+                                Ok(_) => log::info!("[hotkey] trigger-activated emitted successfully"),
+                                Err(e) => log::error!("[hotkey] failed to emit trigger-activated: {}", e),
+                            }
                         }
                     }
                 }
@@ -80,6 +87,7 @@ pub fn start_listener(app_handle: AppHandle, trigger: String) {
 
         match tap {
             Ok(tap) => {
+                log::info!("[hotkey] event tap created successfully, entering run loop");
                 unsafe {
                     let loop_source = tap
                         .mach_port
@@ -92,8 +100,8 @@ pub fn start_listener(app_handle: AppHandle, trigger: String) {
                 }
             }
             Err(_) => {
-                eprintln!("Failed to create event tap. Please grant Accessibility permission.");
-                eprintln!("System Preferences → Privacy & Security → Accessibility → Enable Emojoy");
+                log::error!("[hotkey] Failed to create event tap. Please grant Accessibility permission.");
+                log::error!("[hotkey] System Preferences → Privacy & Security → Accessibility → Enable Emojoy");
             }
         }
     });

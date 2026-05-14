@@ -3,6 +3,8 @@ use std::error::Error;
 
 /// Simulate N backspace key presses to delete the trigger characters
 pub fn delete_chars(count: usize) -> Result<(), Box<dyn Error>> {
+    log::info!("[paste] delete_chars called, count={}", count);
+
     #[cfg(target_os = "macos")]
     {
         use core_graphics::event::CGEvent;
@@ -12,8 +14,9 @@ pub fn delete_chars(count: usize) -> Result<(), Box<dyn Error>> {
 
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
             .map_err(|_| "Failed to create event source")?;
+        log::info!("[paste] created CGEventSource (HIDSystemState)");
 
-        for _ in 0..count {
+        for i in 0..count {
             let key_down = CGEvent::new_keyboard_event(source.clone(), KEY_BACKSPACE, true)
                 .map_err(|_| "Failed to create key down event")?;
             key_down.post(core_graphics::event::CGEventTapLocation::HID);
@@ -22,25 +25,34 @@ pub fn delete_chars(count: usize) -> Result<(), Box<dyn Error>> {
                 .map_err(|_| "Failed to create key up event")?;
             key_up.post(core_graphics::event::CGEventTapLocation::HID);
 
+            log::info!("[paste] posted backspace {}/{}", i + 1, count);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
 
+    log::info!("[paste] delete_chars complete");
     Ok(())
 }
 
 /// Copy an emoji to clipboard and simulate paste (Cmd+V on macOS, Ctrl+V on Windows)
 pub fn paste_emoji(emoji: &str) -> Result<(), Box<dyn Error>> {
+    log::info!("[paste] paste_emoji called, emoji={:?}", emoji);
+
     // Write to clipboard
     let mut clipboard = Clipboard::new()?;
     clipboard.set_text(emoji)?;
+    log::info!("[paste] clipboard set");
 
     // Small delay to let clipboard settle
     std::thread::sleep(std::time::Duration::from_millis(50));
 
     // Simulate paste keystroke
     #[cfg(target_os = "macos")]
-    simulate_paste_macos()?;
+    {
+        log::info!("[paste] simulating Cmd+V");
+        simulate_paste_macos()?;
+        log::info!("[paste] Cmd+V posted");
+    }
 
     #[cfg(target_os = "windows")]
     simulate_paste_windows()?;

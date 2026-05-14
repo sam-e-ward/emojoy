@@ -31,29 +31,40 @@ fn search_emojis(query: &str, state: tauri::State<'_, Mutex<AppState>>) -> Vec<e
 
 #[tauri::command]
 fn select_emoji(emoji: String, app: tauri::AppHandle, state: tauri::State<'_, Mutex<AppState>>) -> Result<(), String> {
+    log::info!("[select] select_emoji called, emoji={:?}", emoji);
+
     // Record usage
     {
         let mut state = state.lock().unwrap();
         state.usage.record(&emoji);
         if let Err(e) = state.usage.save() {
-            eprintln!("Failed to save usage stats: {}", e);
+            log::error!("[select] failed to save usage stats: {}", e);
         }
     }
 
     // Hide the popup first
     if let Some(window) = app.get_webview_window("main") {
+        log::info!("[select] hiding window");
         let _ = window.hide();
     }
 
     // Reactivate the previously focused app
     #[cfg(target_os = "macos")]
-    focus_mac::reactivate_previous_app();
+    {
+        log::info!("[select] reactivating previous app");
+        focus_mac::reactivate_previous_app();
+    }
 
     // Wait for the app to regain focus
+    log::info!("[select] waiting 150ms for focus switch");
     std::thread::sleep(std::time::Duration::from_millis(150));
 
     // Paste the emoji
-    paste::paste_emoji(&emoji).map_err(|e| e.to_string())
+    log::info!("[select] pasting emoji");
+    paste::paste_emoji(&emoji).map_err(|e| {
+        log::error!("[select] paste_emoji failed: {}", e);
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -87,8 +98,11 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    log::info!("[app] run() called");
+
     // Load config
     let config = AppConfig::load();
+    log::info!("[app] config loaded, trigger={:?}", config.trigger_sequence);
 
     // Load emoji database
     let resource_path = std::env::current_exe()
@@ -150,18 +164,33 @@ pub fn run() {
             // Listen for trigger event to show window
             let app_handle = app.handle().clone();
             app.listen("trigger-activated", move |_event| {
+                log::info!("[trigger] trigger-activated received on main thread");
+
                 // Capture which app is focused BEFORE we steal focus
                 #[cfg(target_os = "macos")]
-                focus_mac::capture_frontmost_app();
+                {
+                    log::info!("[trigger] capturing frontmost app");
+                    focus_mac::capture_frontmost_app();
+                }
 
                 // Delete the trigger characters (e.g. "::") from the previous app
-                let _ = paste::delete_chars(trigger_len);
+                log::info!("[trigger] deleting {} trigger chars", trigger_len);
+                match paste::delete_chars(trigger_len) {
+                    Ok(_) => log::info!("[trigger] delete_chars succeeded"),
+                    Err(e) => log::error!("[trigger] delete_chars failed: {}", e),
+                }
+
+                log::info!("[trigger] waiting 50ms after delete");
                 std::thread::sleep(std::time::Duration::from_millis(50));
 
                 if let Some(window) = app_handle.get_webview_window("main") {
+                    log::info!("[trigger] showing window");
                     let _ = window.center();
                     let _ = window.show();
                     let _ = window.set_focus();
+                    log::info!("[trigger] window shown and focused");
+                } else {
+                    log::error!("[trigger] could not get main window!");
                 }
             });
 
