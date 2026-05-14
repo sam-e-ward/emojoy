@@ -6,7 +6,7 @@
   "scripts": {
     "tauri": "tauri",
     "build": "tauri build --bundles app",
-    "install-app": "cp -rf src-tauri/target/release/bundle/macos/Emojoy.app /Applications/ && echo 'Installed to /Applications/Emojoy.app'"
+    "install-app": "cp -rf src-tauri/target/release/bundle/macos/Emojoy.app /Applications/ && codesign --force --deep --sign - /Applications/Emojoy.app && echo 'Installed and signed /Applications/Emojoy.app'"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
