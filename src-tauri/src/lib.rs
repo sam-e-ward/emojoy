@@ -182,17 +182,12 @@ pub fn run() {
                     });
                 } else {
                     log::info!("[app] Accessibility permission already granted");
-                    // Create event tap on the main thread and schedule on main run loop
                     let handle = app.handle().clone();
                     if !hotkey_mac::start_listener(handle, trigger.clone()) {
-                        log::error!("[app] Event tap creation failed even with permission — restarting");
-                        let restart_handle = app.handle().clone();
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(500));
-                            let exe = std::env::current_exe().expect("can't find own exe");
-                            let _ = std::process::Command::new(exe).spawn();
-                            restart_handle.exit(0);
-                        });
+                        log::error!("[app] Event tap creation failed.");
+                        log::error!("[app] Accessibility is granted but Input Monitoring may not be.");
+                        log::error!("[app] Opening Input Monitoring settings — enable Emojoy, then restart the app.");
+                        permissions_mac::open_input_monitoring_settings();
                     }
                 }
             }
