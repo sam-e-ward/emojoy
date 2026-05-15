@@ -149,6 +149,15 @@ pub fn run() {
             dismiss,
         ])
         .setup(move |app| {
+            // Hide from Dock — Emojoy lives in the menu bar tray only
+            #[cfg(target_os = "macos")]
+            {
+                use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicy};
+                unsafe {
+                    NSApp().setActivationPolicy_(NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory);
+                }
+            }
+
             setup_tray(app)?;
 
             #[cfg(target_os = "macos")]
