@@ -62,32 +62,59 @@ pub fn start_listener(app_handle: AppHandle, trigger: String) {
         let state = Arc::new(Mutex::new(HotkeyState::new(&trigger)));
         let app = app_handle.clone();
 
-        let tap = CGEventTap::new(
-            CGEventTapLocation::Session,
-            CGEventTapPlacement::HeadInsertEventTap,
-            CGEventTapOptions::ListenOnly,
-            vec![CGEventType::KeyDown],
-            move |_proxy, _event_type, event: &CGEvent| {
-                // Get the characters from the event
-                if let Some(chars) = get_event_characters(event) {
-                    let mut state = state.lock().unwrap();
-                    for c in chars.chars() {
-                        if state.push_char(c) {
-                            log::info!("[hotkey] trigger sequence detected! emitting trigger-activated");
-                            match app.emit("trigger-activated", ()) {
-                                Ok(_) => log::info!("[hotkey] trigger-activated emitted successfully"),
-                                Err(e) => log::error!("[hotkey] failed to emit trigger-activated: {}", e),
+        // Retry event tap creation with backoff. When launched standalone
+        // (not from terminal), the window server session may not be ready
+        // immediately, causing CGEventTapCreate to return NULL even though
+        // accessibility permissions are granted.
+        let delays = [0, 500, 1000, 2000, 4000, 8000]; // ms
+        let mut tap_result = None;
+
+        for (attempt, delay_ms) in delays.iter().enumerate() {
+            if *delay_ms > 0 {
+                log::info!("[hotkey] retrying event tap creation in {}ms (attempt {}/{})", delay_ms, attempt + 1, delays.len());
+                std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
+            }
+
+            let state_clone = Arc::clone(&state);
+            let app_clone = app.clone();
+
+            let tap = CGEventTap::new(
+                CGEventTapLocation::Session,
+                CGEventTapPlacement::HeadInsertEventTap,
+                CGEventTapOptions::ListenOnly,
+                vec![CGEventType::KeyDown],
+                move |_proxy, _event_type, event: &CGEvent| {
+                    if let Some(chars) = get_event_characters(event) {
+                        let mut state = state_clone.lock().unwrap();
+                        for c in chars.chars() {
+                            if state.push_char(c) {
+                                log::info!("[hotkey] trigger sequence detected! emitting trigger-activated");
+                                match app_clone.emit("trigger-activated", ()) {
+                                    Ok(_) => log::info!("[hotkey] trigger-activated emitted successfully"),
+                                    Err(e) => log::error!("[hotkey] failed to emit trigger-activated: {}", e),
+                                }
                             }
                         }
                     }
-                }
-                None // Don't modify the event
-            },
-        );
+                    None
+                },
+            );
 
-        match tap {
-            Ok(tap) => {
-                log::info!("[hotkey] event tap created successfully, entering run loop");
+            match tap {
+                Ok(t) => {
+                    log::info!("[hotkey] event tap created successfully on attempt {}", attempt + 1);
+                    tap_result = Some(t);
+                    break;
+                }
+                Err(_) => {
+                    log::warn!("[hotkey] event tap creation failed on attempt {}/{}", attempt + 1, delays.len());
+                }
+            }
+        }
+
+        match tap_result {
+            Some(tap) => {
+                log::info!("[hotkey] entering run loop");
                 unsafe {
                     let loop_source = tap
                         .mach_port
@@ -99,9 +126,9 @@ pub fn start_listener(app_handle: AppHandle, trigger: String) {
                     CFRunLoop::run_current();
                 }
             }
-            Err(_) => {
-                log::error!("[hotkey] Failed to create event tap. Please grant Accessibility permission.");
-                log::error!("[hotkey] System Preferences → Privacy & Security → Accessibility → Enable Emojoy");
+            None => {
+                log::error!("[hotkey] Failed to create event tap after {} attempts.", delays.len());
+                log::error!("[hotkey] Please grant Accessibility permission in System Preferences → Privacy & Security → Accessibility");
             }
         }
     });
