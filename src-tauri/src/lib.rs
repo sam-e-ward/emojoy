@@ -159,31 +159,42 @@ pub fn run() {
             // Start global keystroke listener (macOS)
             #[cfg(target_os = "macos")]
             {
-                let handle = app.handle().clone();
-                let trigger_clone = trigger.clone();
-                std::thread::spawn(move || {
-                    // Check accessibility permission. If missing, prompt the user
-                    // (this opens System Settings AND registers the current binary
-                    // in the TCC database, so rebuilds work correctly).
-                    if !permissions_mac::is_accessibility_trusted(false) {
-                        log::warn!("[app] Accessibility permission not granted — prompting user");
-                        permissions_mac::is_accessibility_trusted(true); // shows System Settings
+                if !permissions_mac::is_accessibility_trusted(false) {
+                    log::warn!("[app] Accessibility permission not granted — prompting user");
+                    permissions_mac::is_accessibility_trusted(true); // shows System Settings
 
-                        // Poll until the user grants it (they may need to toggle it on)
+                    // Poll in background; once granted, restart so the kernel's
+                    // TCC session cache is fresh for CGEventTapCreate.
+                    let restart_handle = app.handle().clone();
+                    std::thread::spawn(move || {
                         loop {
                             std::thread::sleep(std::time::Duration::from_secs(1));
                             if permissions_mac::is_accessibility_trusted(false) {
-                                log::info!("[app] Accessibility permission granted!");
-                                break;
+                                log::info!("[app] Accessibility permission granted — restarting app");
+                                let exe = std::env::current_exe().expect("can't find own exe");
+                                log::info!("[app] re-launching: {:?}", exe);
+                                let _ = std::process::Command::new(exe).spawn();
+                                restart_handle.exit(0);
+                                return;
                             }
                             log::info!("[app] Still waiting for accessibility permission...");
                         }
-                    } else {
-                        log::info!("[app] Accessibility permission already granted");
+                    });
+                } else {
+                    log::info!("[app] Accessibility permission already granted");
+                    // Create event tap on the main thread and schedule on main run loop
+                    let handle = app.handle().clone();
+                    if !hotkey_mac::start_listener(handle, trigger.clone()) {
+                        log::error!("[app] Event tap creation failed even with permission — restarting");
+                        let restart_handle = app.handle().clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            let exe = std::env::current_exe().expect("can't find own exe");
+                            let _ = std::process::Command::new(exe).spawn();
+                            restart_handle.exit(0);
+                        });
                     }
-
-                    hotkey_mac::start_listener(handle, trigger_clone);
-                });
+                }
             }
 
             // Listen for trigger event to show window
