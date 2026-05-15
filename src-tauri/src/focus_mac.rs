@@ -13,11 +13,9 @@ pub fn capture_frontmost_app() {
         let front_app: id = msg_send![workspace, frontmostApplication];
         if front_app != nil {
             let pid: i32 = msg_send![front_app, processIdentifier];
-            log::info!("[focus] captured frontmost app pid={}", pid);
+            log::info!("[focus] captured frontmost pid={}", pid);
             let mut stored = PREVIOUS_APP_PID.lock().unwrap();
             *stored = Some(pid);
-        } else {
-            log::warn!("[focus] frontmostApplication returned nil");
         }
     }
 }
@@ -30,7 +28,7 @@ pub fn reactivate_previous_app() {
     };
 
     if let Some(pid) = pid {
-        log::info!("[focus] reactivating previous app pid={}", pid);
+        log::info!("[focus] reactivating pid={}", pid);
         unsafe {
             let running_app: id = msg_send![
                 class!(NSRunningApplication),
@@ -38,16 +36,11 @@ pub fn reactivate_previous_app() {
             ];
             if running_app != nil {
                 // NSApplicationActivateIgnoringOtherApps = 1 << 1 = 2
-                let result: bool = msg_send![
+                let _: bool = msg_send![
                     running_app,
                     activateWithOptions: 2u64
                 ];
-                log::info!("[focus] activateWithOptions result={}", result);
-            } else {
-                log::warn!("[focus] runningApplicationWithProcessIdentifier returned nil for pid={}", pid);
             }
         }
-    } else {
-        log::warn!("[focus] no previous app pid stored, nothing to reactivate");
     }
 }

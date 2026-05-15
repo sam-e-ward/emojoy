@@ -1,8 +1,5 @@
-use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
-use core_graphics::event::CGEvent;
-use foreign_types_shared::ForeignType;
 use std::ffi::c_void;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
@@ -49,7 +46,7 @@ impl HotkeyState {
     }
 }
 
-// ---- Raw FFI to CGEventTapCreate (bypass core-graphics crate wrapper) ----
+// ---- Raw FFI to CGEventTapCreate ----
 
 type CFMachPortRef = *mut c_void;
 type CFRunLoopSourceRef = *mut c_void;
@@ -58,14 +55,9 @@ type CFStringRef = *const c_void;
 type CFAllocatorRef = *const c_void;
 type CGEventRef = *mut c_void;
 
-// CGEventTapLocation
 const K_CG_SESSION_EVENT_TAP: u32 = 1;
-const K_CG_HID_EVENT_TAP: u32 = 0;
-// CGEventTapPlacement
 const K_CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
-// CGEventTapOptions
 const K_CG_EVENT_TAP_OPTION_LISTEN_ONLY: u32 = 1;
-// CGEventType::KeyDown
 const K_CG_EVENT_KEY_DOWN: u64 = 10;
 
 type CGEventTapCallBack = unsafe extern "C" fn(
@@ -104,7 +96,8 @@ extern "C" {
     );
 }
 
-/// Context passed through CGEventTapCreate's userInfo pointer
+/// Context passed through CGEventTapCreate's userInfo pointer.
+/// Heap-allocated and leaked — lives for the process lifetime.
 struct TapContext {
     state: Mutex<HotkeyState>,
     app: AppHandle,
@@ -118,7 +111,6 @@ unsafe extern "C" fn tap_callback(
 ) -> CGEventRef {
     let ctx = &*(user_info as *const TapContext);
 
-    // Extract characters from the event
     let mut buf = [0u16; 8];
     let mut len: i64 = 0;
     CGEventKeyboardGetUnicodeString(event as _, buf.len() as _, &mut len, buf.as_mut_ptr());
@@ -128,91 +120,67 @@ unsafe extern "C" fn tap_callback(
             let mut state = ctx.state.lock().unwrap();
             for c in chars.chars() {
                 if state.push_char(c) {
-                    log::info!("[hotkey] trigger sequence detected! emitting trigger-activated");
-                    match ctx.app.emit("trigger-activated", ()) {
-                        Ok(_) => log::info!("[hotkey] trigger-activated emitted successfully"),
-                        Err(e) => log::error!("[hotkey] failed to emit trigger-activated: {}", e),
-                    }
+                    log::info!("[hotkey] trigger detected, emitting event");
+                    let _ = ctx.app.emit("trigger-activated", ());
                 }
             }
         }
     }
 
-    std::ptr::null_mut() // don't modify the event (listen-only)
+    std::ptr::null_mut() // listen-only, don't modify
 }
 
-/// Start listening for the trigger sequence globally.
+/// Create a global keyboard event tap and schedule it on the main run loop.
 ///
-/// Creates the event tap and schedules it on the **main thread's** run loop.
-/// Must be called from the main thread (i.e., inside Tauri's setup closure).
+/// Must be called from the main thread (inside Tauri's setup closure).
+/// Requires both Accessibility and Input Monitoring permissions.
 ///
 /// Returns true if the tap was created successfully.
 pub fn start_listener(app_handle: AppHandle, trigger: String) -> bool {
-    log::info!("[hotkey] start_listener called, trigger={:?}", trigger);
+    log::info!("[hotkey] starting listener for trigger={:?}", trigger);
 
-    let event_mask: u64 = 1 << K_CG_EVENT_KEY_DOWN;
-
-    // Heap-allocate the context and leak it — it must live for the process lifetime
     let ctx = Box::new(TapContext {
         state: Mutex::new(HotkeyState::new(&trigger)),
         app: app_handle,
     });
     let ctx_ptr = Box::into_raw(ctx) as *mut c_void;
 
-    // Try Session tap first, then HID tap as fallback
-    let locations = [
-        (K_CG_SESSION_EVENT_TAP, "Session"),
-        (K_CG_HID_EVENT_TAP, "HID"),
-    ];
+    let event_mask: u64 = 1 << K_CG_EVENT_KEY_DOWN;
 
-    for (location, name) in &locations {
-        log::info!("[hotkey] trying CGEventTapCreate with location={}", name);
+    let tap = unsafe {
+        CGEventTapCreate(
+            K_CG_SESSION_EVENT_TAP,
+            K_CG_HEAD_INSERT_EVENT_TAP,
+            K_CG_EVENT_TAP_OPTION_LISTEN_ONLY,
+            event_mask,
+            tap_callback,
+            ctx_ptr,
+        )
+    };
 
-        let tap = unsafe {
-            CGEventTapCreate(
-                *location,
-                K_CG_HEAD_INSERT_EVENT_TAP,
-                K_CG_EVENT_TAP_OPTION_LISTEN_ONLY,
-                event_mask,
-                tap_callback,
-                ctx_ptr,
-            )
-        };
-
-        if tap.is_null() {
-            log::warn!("[hotkey] CGEventTapCreate returned NULL for location={}", name);
-            continue;
-        }
-
-        log::info!("[hotkey] event tap created successfully (location={})", name);
-
-        unsafe {
-            let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
-            if source.is_null() {
-                log::error!("[hotkey] CFMachPortCreateRunLoopSource returned NULL");
-                continue;
-            }
-
-            // Schedule on the MAIN run loop (not a background thread)
-            let main_loop = CFRunLoopGetMain();
-            // kCFRunLoopCommonModes
-            let common_modes = core_foundation::runloop::kCFRunLoopCommonModes;
-            CFRunLoopAddSource(main_loop, source, common_modes as *const _ as CFStringRef);
-            CGEventTapEnable(tap, true);
-        }
-
-        log::info!("[hotkey] event tap scheduled on main run loop");
-        return true;
+    if tap.is_null() {
+        log::error!("[hotkey] CGEventTapCreate failed — Input Monitoring permission likely missing");
+        // Reclaim the leaked context
+        unsafe { drop(Box::from_raw(ctx_ptr as *mut TapContext)); }
+        return false;
     }
 
-    // If we get here, all locations failed — reclaim the context
     unsafe {
-        drop(Box::from_raw(ctx_ptr as *mut TapContext));
+        let source = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
+        if source.is_null() {
+            log::error!("[hotkey] CFMachPortCreateRunLoopSource failed");
+            drop(Box::from_raw(ctx_ptr as *mut TapContext));
+            return false;
+        }
+
+        let main_loop = CFRunLoopGetMain();
+        let common_modes = core_foundation::runloop::kCFRunLoopCommonModes;
+        CFRunLoopAddSource(main_loop, source, common_modes as *const _ as CFStringRef);
+        CGEventTapEnable(tap, true);
     }
 
-    log::error!("[hotkey] Failed to create event tap with any location");
-    log::error!("[hotkey] Please grant Accessibility permission in System Preferences → Privacy & Security → Accessibility");
-    false
+    log::info!("[hotkey] event tap active on main run loop");
+    true
 }
 
 #[cfg(test)]

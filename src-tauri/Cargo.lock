@@ -791,7 +791,6 @@ dependencies = [
  "core-foundation",
  "core-graphics 0.24.0",
  "dirs",
- "foreign-types-shared",
  "log",
  "objc",
  "serde",
