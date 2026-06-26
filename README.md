@@ -52,7 +52,7 @@ Edit `~/.config/emojoy/config.json`:
 
 ```json
 {
-  "trigger_sequence": "::",
+  "trigger_sequence": ":::",
   "custom_aliases": {
     "🔥": ["awesome", "cool", "nice"],
     "😂": ["rofl", "dead", "dying"]

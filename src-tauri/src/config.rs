@@ -11,7 +11,7 @@ pub struct AppConfig {
 }
 
 fn default_trigger() -> String {
-    "::".to_string()
+    ":::".to_string()
 }
 
 impl Default for AppConfig {

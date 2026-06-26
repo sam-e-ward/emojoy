@@ -189,27 +189,32 @@ mod tests {
 
     #[test]
     fn test_trigger_detection() {
-        let mut state = HotkeyState::new("::");
+        let mut state = HotkeyState::new(":::");
         assert!(!state.push_char('h'));
         assert!(!state.push_char('e'));
+        assert!(!state.push_char(':'));
         assert!(!state.push_char(':'));
         assert!(state.push_char(':'));
     }
 
     #[test]
     fn test_trigger_resets_after_match() {
-        let mut state = HotkeyState::new("::");
+        let mut state = HotkeyState::new(":::");
+        assert!(!state.push_char(':'));
         assert!(!state.push_char(':'));
         assert!(state.push_char(':'));
+        assert!(!state.push_char(':'));
         assert!(!state.push_char(':'));
         assert!(state.push_char(':'));
     }
 
     #[test]
     fn test_no_false_trigger() {
-        let mut state = HotkeyState::new("::");
+        let mut state = HotkeyState::new(":::");
+        assert!(!state.push_char(':'));
         assert!(!state.push_char(':'));
         assert!(!state.push_char('a'));
+        assert!(!state.push_char(':'));
         assert!(!state.push_char(':'));
         assert!(state.push_char(':'));
     }
