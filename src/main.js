@@ -54,6 +54,7 @@ searchInput.addEventListener("keydown", (e) => {
       scrollToSelected();
       break;
     case "Enter":
+    case "Tab":
       e.preventDefault();
       if (currentResults[selectedIndex]) {
         selectEmoji(currentResults[selectedIndex].emoji);
